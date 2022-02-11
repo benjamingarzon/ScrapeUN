@@ -1,7 +1,5 @@
 #install.packages(c("Rcpp","rvest", "stringr", "RSelenium", "pdftools", "dplyr", "LSAfun"))
 
-rm(list = ls())
-
 docs_folder = "docs"
 
 library(openxlsx)
@@ -11,7 +9,7 @@ library(stringr)
 library(RSelenium)
 library(LSAfun)
 
-download_pdfs <- function(search_link, sleeptime = 0.5) {
+download_pdfs <- function(mylink, sleeptime = 0.5) {
   print("Initializing ...")
   # Initialize driver
   shell(
@@ -37,7 +35,7 @@ download_pdfs <- function(search_link, sleeptime = 0.5) {
   
   print("Checking links...")
   driver$open()
-  driver$navigate(search_link)
+  driver$navigate(mylink)
   doc_links = NULL
   page = driver$getPageSource()[[1]]
   # Find links
@@ -50,12 +48,13 @@ download_pdfs <- function(search_link, sleeptime = 0.5) {
     tryCatch({nextPage <-
       driver$findElement(using = "xpath", "//input[@class='rgPageNext']")
     nextPage$clickElement()}, 
-    error <- function(cond){
-      break
+    error = function(cond){
+      print("Element not found")
     }
     )
     
     page = driver$getPageSource()[[1]]
+    print("Reading new page...")
     Sys.sleep(sleeptime)
     
   }
@@ -73,11 +72,12 @@ download_pdfs <- function(search_link, sleeptime = 0.5) {
       english_pdf$clickElement()
       i = i + 1
     }, error = function(cond) {
-      print(paste("No english pdf found", doc_link, sep = "\n"))
+      print(paste("No english pdf found: ", doc_link))
     })
     Sys.sleep(sleeptime)
   }
-  shell("docker stop myselenium; docker rm myselenium")
+  shell("docker stop myselenium")
+  shell("docker rm myselenium")
   print(paste("Downloaded", i, "pdfs."))
   
 }
@@ -97,21 +97,27 @@ convertpdf2txt <- function(dirpath) {
     return(x)
   })
 }
-
+clean_txt <- function(x){
+#  x = gsub("\\.{2}", ".", x)
+#  x = gsub("-{2}", "-", x)
+  return(x)
+  
+}
 summarize_pdfs <-
-  function(dir_path,
-           summary_file = file.path(output_folder, "summaries.txt"),
+  function(dir_path, summary_file = file.path(output_folder, "summaries.txt"),
            sentences = 3) {
-    files <- list.files(dir_path, full.names = T)
     
+    txts <- convertpdf2txt(file.path(docs_folder, dir_path))
+    browser()
     summaries <-
-      sapply(files, function(x)
-        genericSummary(x, k = sentences))
-    names(summaries) = files
+      sapply(txts, function(x)
+        genericSummary(clean_txt(x), k = sentences))
+    browser()
+    names(summaries) = names(txts)
     fileConn <- file(summary_file)
     
-    for (filename in files) {
-      writeLines(c(filename, summaries[filename], "\newpage"), fileConn)
+    for (filename in names(txts)) {
+      writeLines(c(filename, summaries[filename],"\n", strrep("-", 100), "\n\n"), fileConn)
     }
     close(fileConn)
     
@@ -130,12 +136,14 @@ select_pdfs <- function(words, output_folder, remove = T) {
     wordvec = wordvec[wordvec %in% tolower(wordlist)]
     
     mytable = table(wordvec)
-    if (sum(mytable) > 0) {
-      if (remove)
+    if (remove) {
+      if (sum(mytable) > 0) 
         file.move(txtname, file.path("docs", output_folder))
       else
+        unlink(txtname)
+    } else {
+      if (sum(mytable) > 0) 
         file.copy(txtname, file.path("docs", output_folder))
-    } else
-      unlink(txtname)
+    }
   }
 }

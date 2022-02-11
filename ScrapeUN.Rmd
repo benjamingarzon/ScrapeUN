@@ -4,6 +4,7 @@ output: html_notebook
 ---
 
 ```{r}
+rm(list = ls())
 source("./ScrapeUNfuncs.R")
 ```
 
@@ -28,8 +29,8 @@ download_pdfs(search_link)
 
 Select the ones that contain words and summarize them
 ```{r}
-select_pdfs(words, output_folder, remove=T)
-summarize_pdfs(output_folder, sentences=3)
+select_pdfs(words, output_folder, remove=F)
+summarize_pdfs(output_folder, sentences=4)
 ```
 
 ```{r}
