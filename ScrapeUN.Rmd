@@ -1,0 +1,95 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+source("./ScrapeUNfuncs.R")
+```
+
+Configure these variables
+
+```{r}
+
+search_link = "http://tbinternet.ohchr.org/_layouts/15/treatybodyexternal/TBSearch.aspx?Lang=en&CountryID=4&DocTypeCategoryID=4"
+
+output_folder = "housing"
+
+words = "housing, poverty"
+
+
+```
+
+Download the pdfs
+
+```{r}
+download_pdfs(search_link)
+```
+
+Select the ones that contain words and summarize them
+```{r}
+select_pdfs(words, output_folder, remove=T)
+summarize_pdfs(output_folder, sentences=3)
+```
+
+```{r}
+
+
+doc_listing <- read_html(link)
+
+```
+
+```{r}
+driver$navigate
+```
+
+```{r}
+doc_links <- doc_listing %>% html_nodes("a") %>% html_attr("href") %>% str_subset("Download")
+print(doc_links)
+```
+```{r}
+for (doc_link in doc_links)  {
+  pdf_link = read_html(doc_link) %>% html_nodes("a") %>% html_attr("href") %>% str_subset("daccess") %>% str_subset("Lang=E")
+  driver$navigate(pdf_link)
+  print(pdf_link)
+  Sys.sleep(2)
+}
+```
+
+
+
+
+
+
+
+
+
+
+```{r}
+driver$close()
+```
+
+```{r}
+convertpdf2txt <- function(dirpath){
+  files <- list.files(dirpath, full.names = T)
+  x <- sapply(files, function(x){
+  x <- pdftools::pdf_text(x) %>%
+  paste(sep = " ") %>%
+  stringr::str_replace_all(fixed("\n"), " ") %>%
+  stringr::str_replace_all(fixed("\r"), " ") %>%
+  stringr::str_replace_all(fixed("\t"), " ") %>%
+  stringr::str_replace_all(fixed("\""), " ") %>%
+  paste(sep = " ", collapse = " ") %>%
+  stringr::str_squish() %>%
+  stringr::str_replace_all("- ", "") 
+  return(x)
+    })
+}
+```
+
+
+```{r}
+txts <- convertpdf2txt("data/")
+str(txts)
+```
+
