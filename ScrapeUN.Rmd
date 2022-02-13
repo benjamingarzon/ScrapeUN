@@ -3,94 +3,57 @@ title: "R Notebook"
 output: html_notebook
 ---
 
+
 ```{r}
 rm(list = ls())
 source("./ScrapeUNfuncs.R")
 ```
 
-Configure these variables
-
-```{r}
-
-search_link = "http://tbinternet.ohchr.org/_layouts/15/treatybodyexternal/TBSearch.aspx?Lang=en&CountryID=4&DocTypeCategoryID=4"
-
-output_folder = "housing"
-
-words = "housing, poverty"
-
-
-```
-
 Download the pdfs
 
 ```{r}
+search_link = "http://tbinternet.ohchr.org/_layouts/15/TreatyBodyExternal/TBSearch.aspx?Lang=en&TreatyID=9&DocTypeID=5"
 download_pdfs(search_link)
 ```
 
-Select the ones that contain words and summarize them
-```{r}
-select_pdfs(words, output_folder, remove=F)
-summarize_pdfs(output_folder, sentences=4)
-```
-
+Select the ones that contain certain words and summarize them
 ```{r}
 
+output_folder = "homelessness"
+words = "homelessness, homeless"
+select_pdfs(words, output_folder)
+summarize_pdfs(output_folder, sentences=5)
 
-doc_listing <- read_html(link)
-
-```
-
-```{r}
-driver$navigate
-```
-
-```{r}
-doc_links <- doc_listing %>% html_nodes("a") %>% html_attr("href") %>% str_subset("Download")
-print(doc_links)
+output_folder = "housing"
+words = "housing, poverty"
+select_pdfs(words, output_folder)
+summarize_pdfs(output_folder, sentences=5)
 ```
 ```{r}
-for (doc_link in doc_links)  {
-  pdf_link = read_html(doc_link) %>% html_nodes("a") %>% html_attr("href") %>% str_subset("daccess") %>% str_subset("Lang=E")
-  driver$navigate(pdf_link)
-  print(pdf_link)
-  Sys.sleep(2)
-}
+output_folder = "homelessness"
+summarize_pdfs(output_folder, sentences=5)
 ```
 
 
 
-
-
-
-
-
-
-
 ```{r}
-driver$close()
-```
-
-```{r}
-convertpdf2txt <- function(dirpath){
-  files <- list.files(dirpath, full.names = T)
-  x <- sapply(files, function(x){
-  x <- pdftools::pdf_text(x) %>%
-  paste(sep = " ") %>%
-  stringr::str_replace_all(fixed("\n"), " ") %>%
-  stringr::str_replace_all(fixed("\r"), " ") %>%
-  stringr::str_replace_all(fixed("\t"), " ") %>%
-  stringr::str_replace_all(fixed("\""), " ") %>%
-  paste(sep = " ", collapse = " ") %>%
-  stringr::str_squish() %>%
-  stringr::str_replace_all("- ", "") 
-  return(x)
-    })
-}
-```
 
 
-```{r}
-txts <- convertpdf2txt("data/")
-str(txts)
+
+
+
+
+textdata <- base::readRDS(url("https://slcladal.github.io/data/sotu_paragraphs.rda", "rb"))
+# load stopwords
+english_stopwords <- readLines("https://slcladal.github.io/resources/stopwords_en.txt", encoding = "UTF-8")
+# create corpus object
+corpus <- Corpus(DataframeSource(textdata))
+# Preprocessing chain
+processedCorpus <- tm_map(corpus, content_transformer(tolower))
+processedCorpus <- tm_map(processedCorpus, removeWords, english_stopwords)
+processedCorpus <- tm_map(processedCorpus, removePunctuation, preserve_intra_word_dashes = TRUE)
+processedCorpus <- tm_map(processedCorpus, removeNumbers)
+processedCorpus <- tm_map(processedCorpus, stemDocument, language = "en")
+processedCorpus <- tm_map(processedCorpus, stripWhitespace)
 ```
 

@@ -1,4 +1,4 @@
-#install.packages(c("Rcpp","rvest", "stringr", "RSelenium", "pdftools", "dplyr", "LSAfun"))
+#install.packages(c("Rcpp","rvest", "stringr", "RSelenium", "pdftools", "dplyr", "LSAfun", "ggplot2"))
 
 docs_folder = "docs"
 
@@ -8,6 +8,10 @@ library(rvest)
 library(stringr)
 library(RSelenium)
 library(LSAfun)
+library(dplyr)
+library(reshape2)
+library(ggplot2)
+library(lexRankr)
 
 download_pdfs <- function(mylink, sleeptime = 0.5) {
   print("Initializing ...")
@@ -45,13 +49,14 @@ download_pdfs <- function(mylink, sleeptime = 0.5) {
       break
     doc_links <- c(doc_links, new_links)
     
-    tryCatch({nextPage <-
-      driver$findElement(using = "xpath", "//input[@class='rgPageNext']")
-    nextPage$clickElement()}, 
-    error = function(cond){
+    tryCatch({
+      nextPage <-
+        driver$findElement(using = "xpath", "//input[@class='rgPageNext']")
+      nextPage$clickElement()
+    },
+    error = function(cond) {
       print("Element not found")
-    }
-    )
+    })
     
     page = driver$getPageSource()[[1]]
     print("Reading new page...")
@@ -60,7 +65,7 @@ download_pdfs <- function(mylink, sleeptime = 0.5) {
   }
   
   print(paste("Found", length(doc_links), "links."))
-
+  
   print("Downloading pdfs...")
   # Download pdfs
   i = 0
@@ -72,7 +77,7 @@ download_pdfs <- function(mylink, sleeptime = 0.5) {
       english_pdf$clickElement()
       i = i + 1
     }, error = function(cond) {
-      print(paste("No english pdf found: ", doc_link))
+      print(paste("No english pdf found:", doc_link))
     })
     Sys.sleep(sleeptime)
   }
@@ -83,7 +88,7 @@ download_pdfs <- function(mylink, sleeptime = 0.5) {
 }
 
 convertpdf2txt <- function(dirpath) {
-  files <- list.files(dirpath, full.names = T)
+  files <- list.files(dirpath, full.names = T, pattern = "\\.pdf$")
   x <- sapply(files, function(x) {
     x <- pdftools::pdf_text(x) %>%
       paste(sep = " ") %>%
@@ -97,37 +102,61 @@ convertpdf2txt <- function(dirpath) {
     return(x)
   })
 }
-clean_txt <- function(x){
-#  x = gsub("\\.{2}", ".", x)
-#  x = gsub("-{2}", "-", x)
+clean_txt <- function(x) {
+  x = gsub("\\.{2}", ".", x)
+  #  x = gsub("-{2}", "-", x)
+  #x = iconv(x, from = '', to = 'ASCII//TRANSLIT')
+  
   return(x)
   
 }
+
+summarize_txt = function(txt, k = 5) {
+  top = lexRank(txt, n = k)
+  order_of_appearance = order(as.integer(gsub("_", "", top$sentenceId)))
+  ordered_top = top[order_of_appearance, "sentence"]
+  return(paste(ordered_top))
+}
+
 summarize_pdfs <-
-  function(dir_path, summary_file = file.path(output_folder, "summaries.txt"),
+  function(dir_path,
+           summary_file = "Summaries.txt",
            sentences = 3) {
-    
     txts <- convertpdf2txt(file.path(docs_folder, dir_path))
-    browser()
+#    browser()
     summaries <-
       sapply(txts, function(x)
-        genericSummary(clean_txt(x), k = sentences))
-    browser()
-    names(summaries) = names(txts)
-    fileConn <- file(summary_file)
+        #        genericSummary(clean_txt(x), k = sentences)
+        summarize_txt(clean_txt(x), k = sentences))
     
-    for (filename in names(txts)) {
-      writeLines(c(filename, summaries[filename],"\n", strrep("-", 100), "\n\n"), fileConn)
-    }
+    
+    names(summaries) = sapply(names(txts), basename)
+    fileConn <- file(file.path(docs_folder, dir_path, summary_file), 'a')
+    
+    mytable = read.table(file = file.path(docs_folder, dir_path, "Word_counts.csv"),
+      sep = ",",
+      header = T
+    )
+    browser()
+    for (filename in lapply(mytable$Document, basename)) {
+      print(filename)
+      writeLines(filename, fileConn)
+      writeLines(summaries[[filename]], fileConn)
+      writeLines(strrep("-", 100), fileConn)
+      writeLines("\n\n", fileConn)    }
     close(fileConn)
     
   }
 
-select_pdfs <- function(words, output_folder, remove = T) {
-  txts <- convertpdf2txt(docs_folder)
+select_pdfs <- function(words, output_folder, remove = F) {
   wordlist = sapply(str_split(words, ","), str_trim)
   
-  dir.create(file.path(docs_folder, output_folder))
+  mytables = NULL
+  txts <- convertpdf2txt(docs_folder)
+  output_path = file.path(docs_folder, output_folder)
+  if (file.exists(output_path))
+    unlink(output_path, recursive = TRUE)
+  dir.create(output_path)
   for (txtname in names(txts)) {
     txt = txts[txtname]
     wordvec <-
@@ -135,15 +164,35 @@ select_pdfs <- function(words, output_folder, remove = T) {
         str_split(tolower(z), " "))))
     wordvec = wordvec[wordvec %in% tolower(wordlist)]
     
-    mytable = table(wordvec)
+    mytable = table(factor(wordvec, levels = wordlist))
+    mytables = rbind(mytables, c(txtname, mytable))
+    
     if (remove) {
-      if (sum(mytable) > 0) 
-        file.move(txtname, file.path("docs", output_folder))
+      if (sum(mytable) > 0)
+        file.move(txtname, output_path)
       else
         unlink(txtname)
     } else {
-      if (sum(mytable) > 0) 
-        file.copy(txtname, file.path("docs", output_folder))
+      if (sum(mytable) > 0)
+        file.copy(txtname, output_path)
     }
   }
+  colnames(mytables)[1] = "Document"
+  df = as.data.frame(mytables)
+  df[,-1] = apply(df[,-1], c(1, 2), as.numeric)
+  df$Total = rowSums(df[,-1])
+  df = df %>% arrange(desc(Total)) %>% filter(Total > 0)
+  #View(df)
+  df.melt = melt(df, id.vars = "Document", variable.name = "Word")
+  myplot = ggplot(df.melt, aes(value, col = Word)) + geom_freqpoly() + ggtitle(output_folder)
+  print(myplot)
+  ggsave(file.path(output_path, "Word_counts.png", width = 10, height = 10))
+  write.table(
+    df,
+    file = file.path(output_path, "Word_counts.csv"),
+    row.names = F,
+    col.names = T,
+    sep = ","
+  )
+  print(paste("Finished selecting documents for:", words))
 }
