@@ -1,4 +1,5 @@
-#install.packages(c("Rcpp","rvest", "stringr", "RSelenium", "pdftools", "dplyr", "LSAfun", "ggplot2"))
+#install.packages(c("Rcpp","rvest", "stringr", "RSelenium", "pdftools", "dplyr", "LSAfun", "ggplot2", 
+#"tm", "lda", "ldatuning", "topicmodels"))
 
 docs_folder = "docs"
 
@@ -12,6 +13,9 @@ library(dplyr)
 library(reshape2)
 library(ggplot2)
 library(lexRankr)
+library(lda)
+library(ldatuning)
+library(topicmodels)
 
 download_pdfs <- function(mylink, sleeptime = 0.5) {
   print("Initializing ...")
@@ -103,15 +107,15 @@ convertpdf2txt <- function(dirpath) {
   })
 }
 clean_txt <- function(x) {
-  x = gsub("\\.{2}", ".", x)
-  #  x = gsub("-{2}", "-", x)
-  #x = iconv(x, from = '', to = 'ASCII//TRANSLIT')
+  x = gsub("\\.+", ".", x)
+  x = gsub("\\. (?=\\d+)", " ", x, perl=T)
   
   return(x)
   
 }
 
-summarize_txt = function(txt, k = 5) {
+summarize_txt = function(txt, k=5) {
+
   top = lexRank(txt, n = k)
   order_of_appearance = order(as.integer(gsub("_", "", top$sentenceId)))
   ordered_top = top[order_of_appearance, "sentence"]
@@ -123,13 +127,10 @@ summarize_pdfs <-
            summary_file = "Summaries.txt",
            sentences = 3) {
     txts <- convertpdf2txt(file.path(docs_folder, dir_path))
-#    browser()
     summaries <-
       sapply(txts, function(x)
-        #        genericSummary(clean_txt(x), k = sentences)
         summarize_txt(clean_txt(x), k = sentences))
-    
-    
+
     names(summaries) = sapply(names(txts), basename)
     fileConn <- file(file.path(docs_folder, dir_path, summary_file), 'a')
     
@@ -137,15 +138,14 @@ summarize_pdfs <-
       sep = ",",
       header = T
     )
-    browser()
+    #browser()
     for (filename in lapply(mytable$Document, basename)) {
-      print(filename)
-      writeLines(filename, fileConn)
+      writeLines(paste0(filename, ':\n'), fileConn)
       writeLines(summaries[[filename]], fileConn)
-      writeLines(strrep("-", 100), fileConn)
-      writeLines("\n\n", fileConn)    }
+      writeLines(strrep("-", 120), fileConn)
+      }
     close(fileConn)
-    
+    return(txts)
   }
 
 select_pdfs <- function(words, output_folder, remove = F) {
@@ -186,7 +186,7 @@ select_pdfs <- function(words, output_folder, remove = F) {
   df.melt = melt(df, id.vars = "Document", variable.name = "Word")
   myplot = ggplot(df.melt, aes(value, col = Word)) + geom_freqpoly() + ggtitle(output_folder)
   print(myplot)
-  ggsave(file.path(output_path, "Word_counts.png", width = 10, height = 10))
+  ggsave(file.path(output_path, "Word_counts.png"), width = 10, height = 10)
   write.table(
     df,
     file = file.path(output_path, "Word_counts.csv"),
@@ -195,4 +195,5 @@ select_pdfs <- function(words, output_folder, remove = F) {
     sep = ","
   )
   print(paste("Finished selecting documents for:", words))
+
 }

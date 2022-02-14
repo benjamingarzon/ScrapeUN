@@ -22,12 +22,12 @@ Select the ones that contain certain words and summarize them
 output_folder = "homelessness"
 words = "homelessness, homeless"
 select_pdfs(words, output_folder)
-summarize_pdfs(output_folder, sentences=5)
-
+txts = summarize_pdfs(output_folder, sentences=5)
+stophere
 output_folder = "housing"
 words = "housing, poverty"
 select_pdfs(words, output_folder)
-summarize_pdfs(output_folder, sentences=5)
+txts = summarize_pdfs(output_folder, sentences=5)
 ```
 ```{r}
 output_folder = "homelessness"
@@ -39,14 +39,25 @@ summarize_pdfs(output_folder, sentences=5)
 ```{r}
 
 
+MINLENGTH = 10
+textdata = NULL
+library(tokenizers)
+j = 1
+txt_sentences = tokenize_sentences(txts)
 
+for( i in seq(length(txts))) {
+  for (sentence in txt_sentences[[i]]) {
+    if (nchar(sentence) > MINLENGTH) {
+      textdata = rbind(textdata, c(j, i, basename(names(txts)[i]), sentence) )
+      j = j + 1
+    }
+  }
+}
+textdata = as.data.frame(textdata)
+colnames(textdata) = c("doc_id", "report_id", "report_name", "text")
 
-
-
-textdata <- base::readRDS(url("https://slcladal.github.io/data/sotu_paragraphs.rda", "rb"))
-# load stopwords
 english_stopwords <- readLines("https://slcladal.github.io/resources/stopwords_en.txt", encoding = "UTF-8")
-# create corpus object
+
 corpus <- Corpus(DataframeSource(textdata))
 # Preprocessing chain
 processedCorpus <- tm_map(corpus, content_transformer(tolower))
@@ -55,5 +66,80 @@ processedCorpus <- tm_map(processedCorpus, removePunctuation, preserve_intra_wor
 processedCorpus <- tm_map(processedCorpus, removeNumbers)
 processedCorpus <- tm_map(processedCorpus, stemDocument, language = "en")
 processedCorpus <- tm_map(processedCorpus, stripWhitespace)
+```
+
+```{r}
+minimumFrequency <- 5
+DTM <- DocumentTermMatrix(processedCorpus, control = list(bounds = list(global = c(minimumFrequency, Inf))))
+# have a look at the number of documents and terms in the matrix
+dim(DTM)
+
+sel_idx <- slam::row_sums(DTM) > 0
+DTM <- DTM[sel_idx, ]
+textdata <- textdata[sel_idx, ]
+```
+
+
+```{r}
+result <- ldatuning::FindTopicsNumber(
+  DTM,
+  topics = seq(from = 2, to = 20, by = 1),
+  metrics = c("CaoJuan2009",  "Deveaud2014"),
+  method = "Gibbs",
+  control = list(seed = 77),
+  verbose = TRUE
+)
+```
+
+```{r}
+FindTopicsNumber_plot(result)
+
+
+```
+
+```{r}
+# number of topics
+K <- 5
+# set random number generator seed
+set.seed(9161)
+# compute the LDA model, inference via 1000 iterations of Gibbs sampling
+topicModel <- LDA(DTM, K, method="Gibbs", control=list(iter = 500, verbose = 25))
+```
+
+
+
+
+```{r}
+tmResult <- posterior(topicModel)
+# format of the resulting object
+attributes(tmResult)
+nTerms(DTM)              # lengthOfVocab
+beta <- tmResult$terms   # get beta from results
+dim(beta)                # K distributions over nTerms(DTM) terms
+rowSums(beta)   
+```
+```{r}
+nDocs(DTM)               # size of collection
+theta <- tmResult$topics 
+dim(theta)               # nDocs(DTM) distributions over K topics
+rowSums(theta)[1:10] 
+terms(topicModel, 10)
+exampleTermData <- terms(topicModel, 10)
+exampleTermData[, 1:8]
+
+top5termsPerTopic <- terms(topicModel, 5)
+topicNames <- apply(top5termsPerTopic, 2, paste, collapse=" ")
+```
+```{r}
+for ( topicToViz in seq(5)){
+# select to 40 most probable terms from the topic by sorting the term-topic-probability vector in decreasing order
+top40terms <- sort(tmResult$terms[topicToViz,], decreasing=TRUE)[1:40]
+words <- names(top40terms)
+# extract the probabilites of each of the 40 terms
+probabilities <- sort(tmResult$terms[topicToViz,], decreasing=TRUE)[1:40]
+# visualize the terms as wordcloud
+mycolors <- brewer.pal(8, "Dark2")
+wordcloud(words, probabilities, random.order = FALSE, color = mycolors)
+}
 ```
 
